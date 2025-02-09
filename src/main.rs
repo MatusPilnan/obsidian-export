@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use eyre::{eyre, Result};
 use gumdrop::Options;
-use obsidian_export::postprocessors::{filter_by_tags, softbreaks_to_hardbreaks};
+use obsidian_export::postprocessors::{destination_from_frontmatter, filter_by_tags, remove_specified_tags, softbreaks_to_hardbreaks};
 use obsidian_export::{ExportError, Exporter, FrontmatterStrategy, WalkOptions};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -47,6 +47,9 @@ struct Opts {
 
     #[options(no_short, help = "Export only files with this tag")]
     only_tags: Vec<String>,
+
+    #[options(no_short, help = "Remove specified tags from the frontmatter before exporting (after filtering)")]
+    remove_tags: Vec<String>,
 
     #[options(no_short, help = "Export hidden files", default = "false")]
     hidden: bool,
@@ -112,7 +115,10 @@ fn main() {
     }
 
     let tags_postprocessor = filter_by_tags(args.skip_tags, args.only_tags);
+    let tags_remover = remove_specified_tags(args.remove_tags.clone());
     exporter.add_postprocessor(&tags_postprocessor);
+    exporter.add_postprocessor(&destination_from_frontmatter);
+    exporter.add_postprocessor(&tags_remover);
 
     if let Some(path) = args.start_at {
         exporter.start_at(path);

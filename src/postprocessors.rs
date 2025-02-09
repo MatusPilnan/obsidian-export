@@ -1,7 +1,13 @@
 //! A collection of officially maintained [postprocessors][crate::Postprocessor].
 
-use pulldown_cmark::Event;
-use serde_yaml::Value;
+use std::{fs, io::ErrorKind, path::Path};
+
+use pulldown_cmark::{Event, Tag};
+use serde_yaml::{Value};
+use slug::slugify;
+
+use crate::WriteSnafu;
+use snafu::ResultExt;
 
 use super::{Context, MarkdownEvents, PostprocessorResult};
 
@@ -19,6 +25,59 @@ pub fn softbreaks_to_hardbreaks(
     PostprocessorResult::Continue
 }
 
+
+pub fn destination_from_frontmatter(
+    context: &mut Context,
+    events: &mut MarkdownEvents<'_>,
+) -> PostprocessorResult {
+    let date = context.frontmatter.get("date").and_then(|d| d.as_str()).unwrap_or("1970-01-01").to_owned();
+    let title = context.frontmatter.get("title").and_then(|d| d.as_str()).unwrap_or(context.current_file().file_stem().expect("It is a file").to_str().expect("It is a file")).to_owned();
+    let slug = slugify(title);
+    match context.frontmatter.get("export_to") {
+        Some(Value::String(export_path)) => {
+            let mut from = context.current_file().as_path();
+            let mut to = context.destination.as_path();
+            while from.file_name() == to.file_name() {
+                to = to.parent().unwrap_or(to);
+                from = from.parent().unwrap_or(from);
+            }
+            let mut target = export_path.replace(":date", &date);
+            target = target.replace(":title", &slug);
+            context.destination = to.join( Path::new(&target)).to_path_buf();
+
+            for event in events.iter_mut() {
+                match event {
+                    Event::Start(Tag::Image {
+                        link_type: _,
+                        dest_url,
+                        title: _,
+                        id: _,
+                    }) => {
+                        let d = dest_url.to_string();
+                        if !d.starts_with("https://") && !dest_url.to_string().starts_with("/") {
+                            let imgsrc = context.current_file().parent().expect("File will have parent.").join(&d);
+                            let dest = context.destination.parent().expect("File will have parent.").join(&d);
+
+                            let _ = fs::copy(imgsrc.clone(), dest.clone())
+                                .or_else(|err| {
+                                    if err.kind() == ErrorKind::NotFound {
+                                        let parent = dest.parent().expect("file should have a parent directory");
+                                        fs::create_dir_all(parent)?;
+                                    }
+                                    fs::copy(imgsrc.clone(), dest.clone())
+                                })
+                                .context(WriteSnafu { path: imgsrc.clone() });
+                        }
+                    },
+                    _ => (),
+                }
+            }
+        },
+        _ => {}
+    }
+    PostprocessorResult::Continue
+}
+
 pub fn filter_by_tags(
     skip_tags: Vec<String>,
     only_tags: Vec<String>,
@@ -29,6 +88,25 @@ pub fn filter_by_tags(
             Some(Value::Sequence(tags)) => filter_by_tags_(tags, &skip_tags, &only_tags),
             _ => PostprocessorResult::Continue,
         }
+    }
+}
+
+pub fn remove_specified_tags(
+    to_remove: Vec<String>,
+) -> impl Fn(&mut Context, &mut MarkdownEvents<'_>) -> PostprocessorResult {
+    move |context: &mut Context, _events: &mut MarkdownEvents<'_>| -> PostprocessorResult {
+        let mut result_tags: Vec<String> = vec![];
+        match context.frontmatter.get("tags") {
+            Some(Value::Sequence(tags)) => {tags.iter().map(|t| {
+                let tag = t.as_str().unwrap_or("").to_owned();
+                if !to_remove.contains(&tag) {
+                    result_tags.push(tag.clone());
+                }
+            }).for_each(drop); ()},
+            _ => (),
+        }
+        context.frontmatter.insert("tags".into(), result_tags.into());
+        return PostprocessorResult::Continue
     }
 }
 
