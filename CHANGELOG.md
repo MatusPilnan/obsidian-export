@@ -2,6 +2,11 @@
 
 <!-- towncrier release notes start -->
 
+## [25.2.1](https://github.com/zoni/obsidian-export/tree/25.2.1) - 2025-02-11
+
+No significant changes.
+
+
 ## [25.2.0](https://github.com/zoni/obsidian-export/tree/25.2.0) - 2025-02-10
 
 No significant changes.
