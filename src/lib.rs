@@ -417,7 +417,7 @@ impl<'a> Exporter<'a> {
     fn export_note(&self, src: &Path, dest: &Path) -> Result<()> {
         match is_markdown_file(src) {
             true => self.parse_and_export_obsidian_note(src, dest),
-            false => copy_file(src, dest),
+            false => Ok(()) // copy_file(src, dest),
         }
         .context(FileExportSnafu { path: src })?;
 
@@ -824,19 +824,6 @@ fn copy_mtime(src: &Path, dest: &Path) -> Result<()> {
         .context(ModTimeReadSnafu { path: src })?;
 
     set_file_mtime(dest, modified_time.into()).context(ModTimeSetSnafu { path: dest })?;
-    Ok(())
-}
-
-fn copy_file(src: &Path, dest: &Path) -> Result<()> {
-    fs::copy(src, dest)
-        .or_else(|err| {
-            if err.kind() == ErrorKind::NotFound {
-                let parent = dest.parent().expect("file should have a parent directory");
-                fs::create_dir_all(parent)?;
-            }
-            fs::copy(src, dest)
-        })
-        .context(WriteSnafu { path: dest })?;
     Ok(())
 }
 
